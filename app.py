@@ -4,172 +4,137 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
+# =========================================================
+# KONFIGURASI APLIKASI
+# =========================================================
 st.set_page_config(
     page_title="Gait Signal Analysis",
     page_icon="📈",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# ==================================================
-# STYLE: BLACK - GREEN
-# ==================================================
+# =========================================================
+# TEMA HITAM - HIJAU
+# =========================================================
 st.markdown("""
 <style>
 .stApp {
-    background: #0b100e;
+    background-color: #0b100e;
     color: #e8f5ec;
 }
 [data-testid="stHeader"] {
-    background: #0b100e;
+    background-color: #0b100e;
 }
 [data-testid="stSidebar"] {
-    background: #141b17;
+    background-color: #141b17;
     border-right: 1px solid #294536;
 }
-.main .block-container {
+.block-container {
     padding-top: 1.5rem;
+    padding-bottom: 2rem;
     max-width: 1800px;
 }
 h1, h2, h3, p, label {
     color: #e8f5ec;
-}
-[data-testid="stVerticalBlockBorderWrapper"] {
-    background: #111915;
-    border: 1px solid #294536;
-    border-radius: 8px;
-    padding: 10px;
 }
 [data-testid="stMetricValue"] {
     color: #54e38e;
 }
 div.stButton > button,
 div.stDownloadButton > button {
-    background: #176b42;
+    background-color: #176b42;
     color: white;
     border: 1px solid #39b86b;
     border-radius: 6px;
 }
 div.stButton > button:hover,
 div.stDownloadButton > button:hover {
-    background: #218c56;
+    background-color: #218c56;
     color: white;
 }
-.section-title {
-    text-align: center;
-    color: #54e38e;
-    font-weight: bold;
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: #111915;
+    border: 1px solid #294536;
+    border-radius: 8px;
+}
+div[data-testid="stDataFrame"] {
+    border: 1px solid #294536;
+    border-radius: 6px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-
-# ==================================================
-# HEADER
-# ==================================================
-st.markdown(
-    "<h1 style='color:#54e38e'>Gait Signal Analysis</h1>",
-    unsafe_allow_html=True
-)
-st.caption(
-    "Heel–Toe Signal | Cross Correlation | Normalization"
-)
+GREEN = "#39d353"
+LIGHT_GREEN = "#54e38e"
+RED = "#ff4545"
+BG = "#0b100e"
+PANEL = "#111915"
+GRID = "#294536"
 
 
-# ==================================================
-# SIDEBAR: UPLOAD FILE
-# ==================================================
-with st.sidebar:
-    st.markdown(
-        "<h2 style='color:#54e38e'>📂 Input Data</h2>",
-        unsafe_allow_html=True
-    )
-
-    heel_file = st.file_uploader(
-        "Upload Heel Signal",
-        type=["txt", "csv"],
-        key="heel_upload"
-    )
-
-    toe_file = st.file_uploader(
-        "Upload Toe Signal",
-        type=["txt", "csv"],
-        key="toe_upload"
-    )
-
-    st.caption(
-        "Upload Heel123.txt dan Toe123.txt secara terpisah. "
-        "Setiap file berisi satu nilai sinyal per baris."
-    )
-
-    st.divider()
-
-    st.subheader("Pengaturan Grafik")
-
-    show_grid = st.checkbox(
-        "Tampilkan grid",
-        value=True
-    )
-
-    line_width = st.slider(
-        "Ketebalan garis",
-        1, 5, 2
-    )
-
-    signal_window = st.selectbox(
-        "Jumlah sampel sinyal",
-        [250, 500, 1000, 1500, 2000],
-        index=2
-    )
-
-
-# ==================================================
-# READ SIGNAL FILE
-# ==================================================
+# =========================================================
+# MEMBACA FILE TXT / CSV
+# =========================================================
 def read_signal(uploaded_file):
-    """Membaca sinyal numerik dari TXT atau CSV."""
+    """
+    Membaca satu kolom sinyal dari TXT atau CSV.
+    Mendukung pemisah spasi, tab, koma, dan titik koma.
+    Baris yang bukan angka akan diabaikan.
+    """
     uploaded_file.seek(0)
 
-    data = pd.read_csv(
-        uploaded_file,
-        header=None,
-        comment="#",
-        sep=r"[\s,;]+",
-        engine="python"
+    content = uploaded_file.getvalue().decode(
+        "utf-8-sig", errors="replace"
     )
 
-    values = data.to_numpy().ravel()
+    values = []
 
-    values = pd.to_numeric(
-        pd.Series(values),
-        errors="coerce"
-    ).dropna().to_numpy(dtype=float)
+    for line in content.splitlines():
+        line = line.strip()
 
-    if len(values) == 0:
-        raise ValueError("File tidak berisi data numerik.")
+        if not line or line.startswith("#"):
+            continue
 
-    if not np.all(np.isfinite(values)):
-        raise ValueError("Data mengandung nilai tidak valid.")
+        # Ambil nilai pertama pada setiap baris
+        # File satu kolom: satu sampel per baris
+        token = line.replace(",", " ").replace(";", " ").split()
 
-    return values
+        if not token:
+            continue
+
+        try:
+            value = float(token[0])
+            if np.isfinite(value):
+                values.append(value)
+        except ValueError:
+            # Lewati header atau teks
+            continue
+
+    if not values:
+        raise ValueError(
+            "Tidak ditemukan data numerik. "
+            "Pastikan file berisi angka sinyal."
+        )
+
+    return np.asarray(values, dtype=float)
 
 
-# ==================================================
-# DEMO DATA
-# ==================================================
-def demo_data():
+# =========================================================
+# DATA CONTOH UNTUK PREVIEW
+# =========================================================
+def create_demo_data():
     n = 6500
-    t = np.arange(n)
-
     heel = np.zeros(n)
     toe = np.zeros(n)
 
     cycles = [
         (350, 220, 1.15),
-        (1350, 250, 2.0),
+        (1350, 250, 2.00),
         (2350, 260, 1.85),
-        (3350, 240, 1.9),
+        (3350, 240, 1.90),
         (4350, 260, 1.95),
-        (5350, 280, 1.8)
+        (5350, 280, 1.80),
     ]
 
     for start, width, amp in cycles:
@@ -183,6 +148,7 @@ def demo_data():
 
         toe_start = start + 90
         toe_end = min(start + width + 260, n)
+
         idx_toe = np.arange(toe_start, toe_end)
         phase_toe = (
             (idx_toe - toe_start) / (width + 170)
@@ -195,73 +161,153 @@ def demo_data():
     return heel, toe
 
 
-# ==================================================
-# LOAD HEEL AND TOE
-# ==================================================
+# =========================================================
+# SIDEBAR: INPUT DATA
+# =========================================================
+with st.sidebar:
+    st.markdown(
+        "<h2 style='color:#54e38e'>📂 Input Data</h2>",
+        unsafe_allow_html=True
+    )
+
+    heel_file = st.file_uploader(
+        "Upload Heel Signal",
+        type=["txt", "csv"],
+        key="heel_file"
+    )
+
+    toe_file = st.file_uploader(
+        "Upload Toe Signal",
+        type=["txt", "csv"],
+        key="toe_file"
+    )
+
+    st.caption(
+        "Upload Heel123.txt dan Toe123.txt secara terpisah. "
+        "Gunakan file berisi satu nilai sinyal per baris."
+    )
+
+    st.divider()
+
+    st.markdown(
+        "<h3 style='color:#54e38e'>Pengaturan Grafik</h3>",
+        unsafe_allow_html=True
+    )
+
+    show_grid = st.checkbox(
+        "Tampilkan grid",
+        value=True
+    )
+
+    line_width = st.slider(
+        "Ketebalan garis",
+        min_value=1,
+        max_value=5,
+        value=2
+    )
+
+    signal_window = st.selectbox(
+        "Jumlah sampel pada tampilan",
+        [500, 1000, 2000, 3000, 5000],
+        index=4
+    )
+
+    show_table_rows = st.selectbox(
+        "Jumlah baris tabel",
+        [10, 25, 50, 100],
+        index=1
+    )
+
+
+# =========================================================
+# LOAD DATA
+# =========================================================
+using_demo = False
+
 if heel_file is not None and toe_file is not None:
     try:
-        heel = read_signal(heel_file)
-        toe = read_signal(toe_file)
+        heel_raw = read_signal(heel_file)
+        toe_raw = read_signal(toe_file)
 
-        # Use equal-length signals
-        n = min(len(heel), len(toe))
-        heel = heel[:n]
-        toe = toe[:n]
+        if len(heel_raw) != len(toe_raw):
+            st.warning(
+                f"Panjang sinyal berbeda: Heel = {len(heel_raw):,}, "
+                f"Toe = {len(toe_raw):,}. "
+                "Analisis menggunakan jumlah sampel yang sama."
+            )
+
+        n = min(len(heel_raw), len(toe_raw))
+
+        heel = heel_raw[:n]
+        toe = toe_raw[:n]
 
         st.success(
-            f"Data berhasil dimuat: {n:,} sampel"
+            f"Data asli berhasil dimuat: {n:,} sampel."
         )
 
     except Exception as error:
         st.error(f"Gagal membaca file: {error}")
-        heel, toe = demo_data()
-        n = min(len(heel), len(toe))
-        heel, toe = heel[:n], toe[:n]
+        heel, toe = create_demo_data()
+        n = len(heel)
+        using_demo = True
 
 elif heel_file is None and toe_file is None:
-    heel, toe = demo_data()
-    n = min(len(heel), len(toe))
+    heel, toe = create_demo_data()
+    n = len(heel)
+    using_demo = True
+
     st.info(
-        "Upload Heel dan Toe untuk menganalisis data asli. "
-        "Saat ini ditampilkan data contoh."
+        "Upload file Heel dan Toe di sidebar. "
+        "Grafik contoh ditampilkan sebelum file tersedia."
     )
 
 else:
-    heel, toe = demo_data()
-    n = min(len(heel), len(toe))
+    heel, toe = create_demo_data()
+    n = len(heel)
+    using_demo = True
+
     st.warning(
-        "Upload kedua file Heel dan Toe agar analisis "
-        "menggunakan data asli. Sementara ini data contoh ditampilkan."
+        "Kedua file harus diunggah agar analisis menggunakan "
+        "data asli. Untuk sementara ditampilkan data contoh."
     )
 
 
-# ==================================================
+# =========================================================
+# HEADER
+# =========================================================
+st.markdown(
+    "<h1 style='color:#54e38e'>Gait Signal Analysis</h1>",
+    unsafe_allow_html=True
+)
+
+st.caption(
+    "Heel–Toe Signal | Cross Correlation | Normalization"
+)
+
+if using_demo:
+    st.info(
+        "Mode preview: hasil di bawah belum merupakan "
+        "analisis file gait asli."
+    )
+
+
+# =========================================================
 # CROSS CORRELATION
-# ==================================================
-# Remove DC component so the correlation can have
-# positive and negative values.
-heel_centered = heel - np.mean(heel)
-toe_centered = toe - np.mean(toe)
+# =========================================================
+# Kurangi rata-rata agar komponen DC tidak mendominasi.
+x = heel - np.mean(heel)
+y = toe - np.mean(toe)
 
-# Full cross-correlation:
-# lag < 0 : left side
-# lag = 0 : center
-# lag > 0 : right side
-rxy = np.correlate(
-    heel_centered,
-    toe_centered,
-    mode="full"
-)
+# np.correlate menghasilkan lag negatif di sisi kiri
+# dan lag positif di sisi kanan.
+lags = np.arange(-(n - 1), n)
 
-lags = np.arange(
-    -(len(toe_centered) - 1),
-    len(heel_centered)
-)
+# Raw cross-correlation
+rxy = np.correlate(x, y, mode="full")
 
-# Normalized cross-correlation
+# Normalisasi dengan energi total kedua sinyal.
 energy = np.sqrt(
-    np.sum(heel_centered ** 2)
-    * np.sum(toe_centered ** 2)
+    np.sum(x ** 2) * np.sum(y ** 2)
 )
 
 if energy > 0:
@@ -269,99 +315,142 @@ if energy > 0:
 else:
     rxy_norm = np.zeros_like(rxy, dtype=float)
 
-# Peak correlation
-peak_index = int(np.argmax(np.abs(rxy_norm)))
-peak_lag = int(lags[peak_index])
-peak_value = float(rxy_norm[peak_index])
+# Indeks lag nol berada di n - 1.
+zero_index = n - 1
+
+# Puncak korelasi positif terbesar
+peak_positive_idx = int(np.argmax(rxy_norm))
+peak_positive_lag = int(lags[peak_positive_idx])
+peak_positive_value = float(rxy_norm[peak_positive_idx])
+
+# Puncak berdasarkan magnitudo korelasi
+peak_abs_idx = int(np.argmax(np.abs(rxy_norm)))
+peak_abs_lag = int(lags[peak_abs_idx])
+peak_abs_value = float(rxy_norm[peak_abs_idx])
+
+# Nilai korelasi pada lag nol
+zero_rxy = float(rxy[zero_index])
+zero_norm = float(rxy_norm[zero_index])
 
 
-# ==================================================
-# CORRELATION LAG SLIDER
-# ==================================================
+# =========================================================
+# SLIDER 1: LAG YANG DIPILIH
+# =========================================================
 st.markdown(
-    "<h3 style='color:#54e38e'>Rentang Analisis</h3>",
+    "<h3 style='color:#54e38e'>Pengaturan Lag</h3>",
     unsafe_allow_html=True
 )
 
-max_lag = max(n - 1, 1)
-
-lag_window = st.slider(
-    "Rentang lag dari titik 0 (kiri negatif, kanan positif)",
-    min_value=1,
-    max_value=max_lag,
-    value=min(1000, max_lag),
-    step=max(1, max_lag // 500)
+selected_lag = st.slider(
+    "Pergeseran sinyal: kiri = lag negatif, tengah = 0, kanan = lag positif",
+    min_value=-(n - 1),
+    max_value=n - 1,
+    value=0,
+    step=1,
+    key="selected_lag"
 )
 
-signal_window = min(signal_window, n)
-max_start = max(n - signal_window, 0)
+# Toe bergeser sesuai lag yang dipilih.
+# Lag positif menggeser Toe ke kanan.
+# Lag negatif menggeser Toe ke kiri.
+sample_axis = np.arange(n)
+toe_axis = sample_axis + selected_lag
+
+corr_idx = selected_lag + zero_index
+
+selected_rxy = float(rxy[corr_idx])
+selected_norm = float(rxy_norm[corr_idx])
+
+# Ringkasan nilai pada lag terpilih
+m1, m2, m3, m4 = st.columns(4)
+
+m1.metric(
+    "Lag Terpilih",
+    f"{selected_lag:+d}"
+)
+
+m2.metric(
+    "Cross Correlation",
+    f"{selected_rxy:.4f}"
+)
+
+m3.metric(
+    "Normalized Rxy",
+    f"{selected_norm:.4f}"
+)
+
+m4.metric(
+    "Lag Puncak Absolut",
+    f"{peak_abs_lag:+d}"
+)
+
+
+# =========================================================
+# SLIDER 2: RENTANG TAMPILAN SINYAL
+# Slider ini hanya mengatur jendela tampilan,
+# bukan menghitung ulang lag.
+# =========================================================
+st.markdown(
+    "<h3 style='color:#54e38e'>Rentang Tampilan Gait Signal</h3>",
+    unsafe_allow_html=True
+)
+
+window_size = min(signal_window, n)
+max_start = max(n - window_size, 0)
 
 start_idx = st.slider(
-    "Geser untuk melihat bagian sinyal Heel–Toe",
+    "Geser untuk melihat siklus gait pada sampel yang berbeda",
     min_value=0,
     max_value=max_start,
-    value=0,
-    step=max(1, min(50, max_start or 1))
+    value=min(
+        st.session_state.get("gait_start", 0),
+        max_start
+    ),
+    step=max(1, min(50, max_start or 1)),
+    key="gait_start"
 )
 
-end_idx = min(start_idx + signal_window, n)
+end_idx = min(start_idx + window_size, n)
 
-sample_axis = np.arange(start_idx, end_idx)
+# Heel dan Toe menggunakan rentang sampel yang sama.
 heel_view = heel[start_idx:end_idx]
 toe_view = toe[start_idx:end_idx]
 
-# Symmetric lag view around zero
-lag_mask = (
-    (lags >= -lag_window)
-    & (lags <= lag_window)
-)
-
-lags_view = lags[lag_mask]
-rxy_view = rxy[lag_mask]
-norm_view = rxy_norm[lag_mask]
+# Sumbu Toe mengikuti pergeseran lag.
+sample_view = np.arange(start_idx, end_idx)
+toe_view_axis = sample_view + selected_lag
 
 
-# ==================================================
-# GRAPH FUNCTION
-# ==================================================
-def create_chart(
+# =========================================================
+# FUNGSI FORMAT GRAFIK
+# =========================================================
+def chart_layout(
+    fig,
     title,
-    x,
-    traces,
     x_title,
     y_title,
-    height=280,
-    zero_center=False
+    height=300,
+    x_range=None,
+    y_range=None,
 ):
-    fig = go.Figure()
-
-    for label, y, color in traces:
-        fig.add_trace(
-            go.Scatter(
-                x=x,
-                y=y,
-                mode="lines",
-                name=label,
-                line=dict(
-                    color=color,
-                    width=line_width
-                )
-            )
-        )
-
     fig.update_layout(
         title=dict(
             text=title,
             x=0.5,
             font=dict(
                 size=15,
-                color="#54e38e"
+                color=LIGHT_GREEN
             )
         ),
         height=height,
-        margin=dict(l=55, r=20, t=45, b=50),
-        paper_bgcolor="#111915",
-        plot_bgcolor="#0b100e",
+        margin=dict(
+            l=55,
+            r=25,
+            t=50,
+            b=50
+        ),
+        paper_bgcolor=PANEL,
+        plot_bgcolor=BG,
         font=dict(
             family="Arial",
             size=11,
@@ -376,114 +465,227 @@ def create_chart(
         xaxis=dict(
             title=x_title,
             showgrid=show_grid,
-            gridcolor="#26382e",
+            gridcolor=GRID,
             zeroline=True,
-            zerolinecolor="#e8f5ec",
-            zerolinewidth=1.5,
-            range=(
-                [-lag_window, lag_window]
-                if zero_center else None
-            )
+            zerolinecolor="#52665a",
+            range=x_range
         ),
         yaxis=dict(
             title=y_title,
             showgrid=show_grid,
-            gridcolor="#26382e",
+            gridcolor=GRID,
             zeroline=True,
-            zerolinecolor="#496454"
+            zerolinecolor="#52665a",
+            range=y_range
         )
     )
-
-    # Vertical line at lag = 0
-    if zero_center:
-        fig.add_vline(
-            x=0,
-            line_color="#54e38e",
-            line_width=2,
-            line_dash="dash"
-        )
 
     return fig
 
 
-# ==================================================
-# MAIN LAYOUT
-# ==================================================
+# =========================================================
+# LAYOUT UTAMA
+# =========================================================
 left, right = st.columns(
     [1.65, 1],
     gap="medium"
 )
 
+
+# =========================================================
+# KOLOM KIRI: TIGA GRAFIK
+# =========================================================
 with left:
 
-    # ----------------------------------------------
-    # GAIT SIGNAL
-    # ----------------------------------------------
+    # -----------------------------------------------------
+    # CHART 1: GAIT SIGNAL
+    # -----------------------------------------------------
     with st.container(border=True):
-        st.plotly_chart(
-            create_chart(
-                "Gait Signal",
-                sample_axis,
-                [
-                    ("Heel (x)", heel_view, "#ff4545"),
-                    ("Toe (y)", toe_view, "#39d353")
-                ],
-                "Sample Number",
-                "Amplitude",
-                height=280
-            ),
-            use_container_width=True,
-            config={"displayModeBar": False}
+
+        fig1 = go.Figure()
+
+        fig1.add_trace(
+            go.Scatter(
+                x=sample_view,
+                y=heel_view,
+                mode="lines",
+                name="Heel (x)",
+                line=dict(
+                    color=RED,
+                    width=line_width
+                )
+            )
         )
 
-    # ----------------------------------------------
-    # CROSS CORRELATION
-    # ----------------------------------------------
-    with st.container(border=True):
+        fig1.add_trace(
+            go.Scatter(
+                x=toe_view_axis,
+                y=toe_view,
+                mode="lines",
+                name="Toe (y)",
+                line=dict(
+                    color=GREEN,
+                    width=line_width
+                )
+            )
+        )
+
+        # Garis vertikal menandai posisi awal jendela.
+        fig1.add_vline(
+            x=start_idx,
+            line_color="#52665a",
+            line_dash="dot",
+            line_width=1
+        )
+
+        fig1 = chart_layout(
+            fig1,
+            "Gait Signal",
+            "Sample Number",
+            "Amplitude",
+            height=310,
+            x_range=[start_idx, end_idx - 1]
+        )
+
         st.plotly_chart(
-            create_chart(
-                "Cross Correlation",
-                lags_view,
-                [
-                    ("Rxy", rxy_view, "#ff4545")
-                ],
-                "Lag (L)",
-                "Cross Correlation",
-                height=300,
-                zero_center=True
-            ),
+            fig1,
             use_container_width=True,
             config={"displayModeBar": False}
         )
 
         st.caption(
-            "Lag negatif ← | 0 = titik tengah | → Lag positif"
+            f"Menampilkan sampel {start_idx:,}–"
+            f"{end_idx - 1:,} dari {n:,} sampel. "
+            f"Toe digeser sebesar {selected_lag:+d} sampel."
         )
 
-    # ----------------------------------------------
-    # NORMALIZATION
-    # ----------------------------------------------
+
+    # -----------------------------------------------------
+    # CHART 2: CROSS CORRELATION
+    # -----------------------------------------------------
     with st.container(border=True):
+
+        # Tampilkan seluruh lag, dari negatif ke positif.
+        fig2 = go.Figure()
+
+        fig2.add_trace(
+            go.Scatter(
+                x=lags,
+                y=rxy,
+                mode="lines",
+                name="Rxy",
+                line=dict(
+                    color=RED,
+                    width=line_width
+                )
+            )
+        )
+
+        # Penanda lag terpilih
+        fig2.add_vline(
+            x=selected_lag,
+            line_color=GREEN,
+            line_dash="dash",
+            line_width=2
+        )
+
+        fig2.add_trace(
+            go.Scatter(
+                x=[selected_lag],
+                y=[selected_rxy],
+                mode="markers",
+                name="Lag terpilih",
+                marker=dict(
+                    color=GREEN,
+                    size=9
+                )
+            )
+        )
+
+        fig2 = chart_layout(
+            fig2,
+            "Cross Correlation",
+            "Index Time Lag (L)",
+            "Rxy Value",
+            height=310
+        )
+
         st.plotly_chart(
-            create_chart(
-                "Normalized Cross Correlation",
-                lags_view,
-                [
-                    ("Normalized Rxy", norm_view, "#39d353")
-                ],
-                "Lag (L)",
-                "Normalized Rxy",
-                height=280,
-                zero_center=True
-            ),
+            fig2,
+            use_container_width=True,
+            config={"displayModeBar": False}
+        )
+
+        st.caption(
+            "Lag negatif berada di kiri, lag 0 di tengah, "
+            "dan lag positif di kanan."
+        )
+
+
+    # -----------------------------------------------------
+    # CHART 3: NORMALIZATION
+    # -----------------------------------------------------
+    with st.container(border=True):
+
+        fig3 = go.Figure()
+
+        fig3.add_trace(
+            go.Scatter(
+                x=lags,
+                y=rxy_norm,
+                mode="lines",
+                name="Normalized Rxy",
+                line=dict(
+                    color=RED,
+                    width=line_width
+                )
+            )
+        )
+
+        fig3.add_hline(
+            y=0,
+            line_color="#52665a",
+            line_width=1
+        )
+
+        fig3.add_vline(
+            x=selected_lag,
+            line_color=GREEN,
+            line_dash="dash",
+            line_width=2
+        )
+
+        fig3.add_trace(
+            go.Scatter(
+                x=[selected_lag],
+                y=[selected_norm],
+                mode="markers",
+                name="Lag terpilih",
+                marker=dict(
+                    color=GREEN,
+                    size=9
+                )
+            )
+        )
+
+        fig3 = chart_layout(
+            fig3,
+            "Normalization",
+            "Index Time Lag (L)",
+            "Normalized Rxy",
+            height=310
+        )
+
+        st.plotly_chart(
+            fig3,
             use_container_width=True,
             config={"displayModeBar": False}
         )
 
 
-# ==================================================
-# NUMERICAL DATA PANEL
-# ==================================================
+# =========================================================
+# KOLOM KANAN: DATA NUMERIK
+# =========================================================
 with right:
 
     st.markdown(
@@ -492,67 +694,182 @@ with right:
         unsafe_allow_html=True
     )
 
+    # -----------------------------------------------------
+    # TABEL SINYAL
+    # -----------------------------------------------------
     with st.container(border=True):
 
+        st.markdown(
+            "<p style='color:#54e38e;font-weight:bold'>"
+            "Heel dan Toe</p>",
+            unsafe_allow_html=True
+        )
+
+        table_start = min(start_idx, max(n - 1, 0))
+        table_end = min(
+            table_start + show_table_rows,
+            n
+        )
+
         signal_table = pd.DataFrame({
-            "Index": np.arange(start_idx, end_idx),
-            "Heel (x)": heel_view,
-            "Toe (y)": toe_view
+            "Index": np.arange(table_start, table_end),
+            "Heel (x)": heel[table_start:table_end],
+            "Toe (y)": toe[table_start:table_end],
         })
 
         st.dataframe(
             signal_table,
-            height=270,
+            height=320,
             use_container_width=True,
             hide_index=True
         )
 
+        st.caption(
+            f"Indeks {table_start}–{max(table_start, table_end - 1)}"
+        )
+
+
+    # -----------------------------------------------------
+    # TABEL CROSS CORRELATION
+    # -----------------------------------------------------
     with st.container(border=True):
 
-        corr_table = pd.DataFrame({
-            "Lag": lags_view,
-            "Rxy": rxy_view,
-            "Normalized Rxy": norm_view
-        })
-
-        # Show rows around lag zero in the table
-        center = len(corr_table) // 2
-        table_start = max(0, center - 15)
-        table_end = min(len(corr_table), center + 16)
-
         st.markdown(
-            "<div class='section-title'>"
-            "Cross Correlation Values</div>",
+            "<p style='color:#54e38e;font-weight:bold'>"
+            "Cross Correlation Values</p>",
             unsafe_allow_html=True
         )
 
+        # Baris yang berada di sekitar lag terpilih.
+        center = corr_idx
+
+        table_corr_start = max(
+            0,
+            center - show_table_rows // 2
+        )
+
+        table_corr_end = min(
+            len(lags),
+            table_corr_start + show_table_rows
+        )
+
+        corr_table = pd.DataFrame({
+            "Lag": lags[table_corr_start:table_corr_end],
+            "Rxy": rxy[table_corr_start:table_corr_end],
+            "Normalized Rxy": rxy_norm[
+                table_corr_start:table_corr_end
+            ]
+        })
+
         st.dataframe(
-            corr_table.iloc[table_start:table_end],
-            height=300,
+            corr_table,
+            height=320,
             use_container_width=True,
             hide_index=True
         )
 
-    st.metric(
-        "Lag pada korelasi absolut maksimum",
-        f"{peak_lag:+d}"
-    )
+        st.caption(
+            f"Nilai ditampilkan di sekitar lag {selected_lag:+d}."
+        )
 
-    st.metric(
-        "Nilai korelasi ternormalisasi",
-        f"{peak_value:.4f}"
-    )
+
+    # -----------------------------------------------------
+    # INFORMASI KORELASI
+    # -----------------------------------------------------
+    with st.container(border=True):
+
+        st.markdown(
+            "<p style='color:#54e38e;font-weight:bold'>"
+            "Ringkasan Analisis</p>",
+            unsafe_allow_html=True
+        )
+
+        st.write(
+            f"**Lag saat ini:** {selected_lag:+d}"
+        )
+
+        st.write(
+            f"**Normalized Rxy saat ini:** {selected_norm:.5f}"
+        )
+
+        st.write(
+            f"**Lag puncak positif:** {peak_positive_lag:+d}"
+        )
+
+        st.write(
+            f"**Nilai puncak positif:** {peak_positive_value:.5f}"
+        )
+
+        st.write(
+            f"**Lag puncak absolut:** {peak_abs_lag:+d}"
+        )
+
+        st.write(
+            f"**Nilai pada lag 0:** {zero_norm:.5f}"
+        )
+
+        if abs(selected_norm) >= 0.7:
+            st.success(
+                "Korelasi ternormalisasi relatif kuat "
+                "pada lag terpilih."
+            )
+        elif abs(selected_norm) >= 0.3:
+            st.info(
+                "Korelasi ternormalisasi sedang "
+                "pada lag terpilih."
+            )
+        else:
+            st.warning(
+                "Korelasi ternormalisasi relatif rendah "
+                "pada lag terpilih."
+            )
+
+
+    # -----------------------------------------------------
+    # DOWNLOAD HASIL
+    # -----------------------------------------------------
+    full_corr_table = pd.DataFrame({
+        "Lag": lags,
+        "Rxy": rxy,
+        "Normalized Rxy": rxy_norm
+    })
 
     st.download_button(
-        "⬇️ Download Hasil Cross Correlation",
-        data=corr_table.to_csv(index=False).encode("utf-8"),
+        "⬇️ Download Cross Correlation",
+        data=full_corr_table.to_csv(
+            index=False
+        ).encode("utf-8"),
         file_name="cross_correlation.csv",
         mime="text/csv",
         use_container_width=True
     )
 
+    full_signal_table = pd.DataFrame({
+        "Index": np.arange(n),
+        "Heel (x)": heel,
+        "Toe (y)": toe
+    })
+
+    st.download_button(
+        "⬇️ Download Sinyal",
+        data=full_signal_table.to_csv(
+            index=False
+        ).encode("utf-8"),
+        file_name="gait_signal.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
+
+
+# =========================================================
+# CATATAN METODE
+# =========================================================
+st.divider()
+
 st.caption(
-    "Cross-correlation dihitung dari sinyal Heel dan Toe "
-    "yang telah dikurangi nilai rata-ratanya. "
-    "Normalisasi menggunakan energi total kedua sinyal."
+    "Metode: cross-correlation dihitung dari sinyal Heel dan Toe "
+    "yang dikurangi rata-ratanya. Normalized Rxy dibagi akar "
+    "hasil kali energi kedua sinyal. Nilai ini berada pada "
+    "rentang -1 hingga +1. Interpretasi lag positif dan negatif "
+    "mengikuti konvensi np.correlate yang digunakan aplikasi."
 )
