@@ -65,7 +65,7 @@ div[data-testid="stDataFrame"] {
 </style>
 """, unsafe_allow_html=True)
 
-GREEN = "#39d353"
+GREEN = "FFC0CB"
 LIGHT_GREEN = "#54e38e"
 RED = "#ff4545"
 BG = "#0b100e"
